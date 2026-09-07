@@ -1,0 +1,22 @@
+# Sorties locales et fichiers de travail — jamais publies
+*.log
+*.tmp
+*.bak
+outputs/
+_brouillons/
+
+# Environnements et secrets — ne doivent JAMAIS approcher un depot public
+.env
+.env.*
+*.key
+*.pem
+secrets/
+
+# Exports de statistiques (donnees personnelles LinkedIn)
+*.xlsx
+*.csv
+
+# Systeme
+Thumbs.db
+desktop.ini
+.DS_Store
