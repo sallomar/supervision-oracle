@@ -426,4 +426,6 @@ utilisateur `TM`, `TX`, `UL`, colonnes `CTIME`, `LMODE`, `REQUEST`) et chapitre 
 Nouveaux scripts régulièrement. Pour être prévenu,
 **[suivez-moi sur LinkedIn](https://www.linkedin.com/in/omar-sall)**.
 
-Je construis **Deynao**, la supervision Oracle 100 % on-premise : [deynao.fr](https://deynao.fr)
+Je construis **Deynao**, la supervision continue des parcs Oracle on-premise : en lecture
+seule, sans agent sur les serveurs de bases, aucun flux transmis à l'éditeur. En phase
+d'évaluation, sur vos propres bases : [deynao.fr](https://deynao.fr)
