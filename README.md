@@ -92,8 +92,7 @@ lesquels méritent d'être maintenus en priorité.
 **Omar SALL**, DBA Oracle, 10 ans et plus en production critique (collectivités territoriales).
 Ces scripts sont ceux que j'utilise, écrits pour être relus avant d'être exécutés.
 
-Je construis **Deynao**, la supervision Oracle 100 % on-premise qui fait ces contrôles
-en continu : [deynao.fr](https://deynao.fr)
+Je construis **Deynao**, la supervision Oracle 100 % on-premise : [deynao.fr](https://deynao.fr)
 
 ## Licence
 

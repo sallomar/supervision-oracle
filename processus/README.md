@@ -275,5 +275,4 @@ Diagnostics Pack (vues `DBA_HIST_`).
 Nouveaux scripts régulièrement. Pour être prévenu,
 **[suivez-moi sur LinkedIn](https://www.linkedin.com/in/omar-sall)**.
 
-Je construis **Deynao**, la supervision Oracle 100 % on-premise qui fait ces contrôles
-en continu : [deynao.fr](https://deynao.fr)
+Je construis **Deynao**, la supervision Oracle 100 % on-premise : [deynao.fr](https://deynao.fr)
