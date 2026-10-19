@@ -30,6 +30,15 @@
 --                 activation d hier n est pas encore visible. L edition compte :
 --                 en Express et en Personal Edition, les fonctionnalites
 --                 presentes sont INCLUSES dans la licence de l edition.
+-- LA LISTE      : ce qui compte comme « licence separee » suit le manuel de
+--                 licence Oracle 19c, revision E94254-18 d avril 2020. Spatial
+--                 and Graph, Machine Learning (ex Advanced Analytics), Oracle
+--                 Text, Privilege Analysis et Flashback Data Archive de base y
+--                 sont INCLUS dans toutes les editions : le script ne les
+--                 signale pas. Multitenant : jusqu a 3 PDB utilisateur par CDB
+--                 sans licence (manuel 19c, table 1-2, p. 1-4) ; au-dela, option.
+--                 Les paliers liberes apres cette revision (ex. In-Memory) n y
+--                 sont pas : le manuel de VOTRE version fait foi.
 -- USAGE         : SQL> @01-options-activees-sans-le-savoir.sql
 --
 -- Limites connues (conteneurs, delai d echantillon, edition) : README du dossier.
@@ -82,9 +91,9 @@ SELECT
     SUM(CASE WHEN f.currently_used = 'TRUE' THEN 1 ELSE 0 END) AS nb_en_usage,
     SUM(CASE WHEN f.currently_used = 'TRUE'
               AND ( REGEXP_LIKE(LOWER(f.name),
-                      'partitioning|olap|data mining|real application cluster|advanced compression|advanced security|label security|database vault|spatial|active data guard|in-memory column store|multitenant|real application testing|diagnostics pack|tuning pack')
+                      'partitioning|olap|real application cluster|advanced compression|advanced security|label security|database vault|active data guard|in-memory column store|multitenant|real application testing|diagnostics pack|tuning pack')
                  OR REGEXP_LIKE(LOWER(f.name),
-                      'sql tuning advisor|sql access advisor|database replay|sqltune|flashback data archive|oracle database in-memory|heat map|automatic data optimization|hybrid columnar compression|advanced index compression|data redaction|privilege analysis|transparent sensitive data protection|encrypted tablespace|backup encryption') )
+                      'sql tuning advisor|sql access advisor|database replay|sqltune|oracle database in-memory|heat map|automatic data optimization|hybrid columnar compression|advanced index compression|data redaction|encrypted tablespace|backup encryption') )
              THEN 1 ELSE 0 END)                               AS nb_payantes
 FROM v$database d, dba_feature_usage_statistics f
 WHERE f.dbid = d.dbid;
@@ -102,6 +111,7 @@ COLUMN derniere       FORMAT A10      HEADING "DERNIERE|DETECTION"
 COLUMN origine        FORMAT A11      HEADING "ORIGINE"
 COLUMN lecture        FORMAT A24      HEADING "LECTURE"
 
+-- Liste des fonctionnalites a licence separee : manuel 19c, revision avril 2020.
 -- ORIGINE : SYSTEME = declenche par Oracle lui-meme (suffixe (system), taches de
 -- maintenance automatique, objets du dictionnaire). LECTURE : jamais un verdict
 -- de conformite, un point de depart. Sur Express/Personal tout est inclus.
@@ -112,9 +122,10 @@ SELECT
     derniere,
     origine,
     CASE
-        WHEN edition_gratuite > 0  THEN 'INCLUS DANS L EDITION'
-        WHEN origine = 'SYSTEME'   THEN 'USAGE INTERNE ORACLE'
-        ELSE                            'A RAPPROCHER DU CONTRAT'
+        WHEN edition_gratuite > 0                        THEN 'INCLUS DANS L EDITION'
+        WHEN LOWER(fonctionnalite) LIKE '%multitenant%'  THEN 'SEUIL 3 PDB, MANUEL 19C'
+        WHEN origine = 'SYSTEME'                         THEN 'USAGE INTERNE ORACLE'
+        ELSE                                                  'A RAPPROCHER DU CONTRAT'
     END AS lecture
 FROM (
     SELECT
@@ -138,9 +149,9 @@ FROM (
     WHERE f.dbid = d.dbid
     AND   f.currently_used = 'TRUE'
     AND   ( REGEXP_LIKE(LOWER(f.name),
-              'partitioning|olap|data mining|real application cluster|advanced compression|advanced security|label security|database vault|spatial|active data guard|in-memory column store|multitenant|real application testing|diagnostics pack|tuning pack')
+              'partitioning|olap|real application cluster|advanced compression|advanced security|label security|database vault|active data guard|in-memory column store|multitenant|real application testing|diagnostics pack|tuning pack')
          OR REGEXP_LIKE(LOWER(f.name),
-              'sql tuning advisor|sql access advisor|database replay|sqltune|flashback data archive|oracle database in-memory|heat map|automatic data optimization|hybrid columnar compression|advanced index compression|data redaction|privilege analysis|transparent sensitive data protection|encrypted tablespace|backup encryption') )
+              'sql tuning advisor|sql access advisor|database replay|sqltune|oracle database in-memory|heat map|automatic data optimization|hybrid columnar compression|advanced index compression|data redaction|encrypted tablespace|backup encryption') )
 )
 ORDER BY CASE origine WHEN 'UTILISATEUR' THEN 1 ELSE 2 END, fonctionnalite;
 
@@ -158,12 +169,10 @@ SELECT
     'INSTALLEE, PAS FORCEMENT UTILISEE'   AS etat_option
 FROM v$option
 WHERE value = 'TRUE'
-AND   parameter IN ('Partitioning', 'OLAP', 'Oracle Data Mining',
-                    'Real Application Clusters', 'Real Application Testing',
-                    'Advanced Compression', 'Advanced Security', 'Label Security',
-                    'Database Vault', 'Spatial', 'Active Data Guard',
-                    'In-Memory Column Store', 'Multitenant', 'Oracle Multimedia',
-                    'Oracle Text', 'Advanced Analytics')
+AND   parameter IN ('Partitioning', 'OLAP', 'Real Application Clusters',
+                    'Real Application Testing', 'Advanced Compression',
+                    'Advanced Security', 'Label Security', 'Database Vault',
+                    'Active Data Guard', 'In-Memory Column Store', 'Multitenant')
 ORDER BY parameter;
 
 COLUMN parametre    FORMAT A31 HEADING "PARAMETRE"

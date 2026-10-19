@@ -56,7 +56,7 @@ est `INCLUS DANS L EDITION`.
    l'**origine** (`SYSTEME` quand c'est Oracle lui-même : suffixe `(system)`, tâches de
    maintenance automatique, objets du dictionnaire ; sinon `UTILISATEUR`) et une
    **lecture** qui n'est jamais un verdict : `A RAPPROCHER DU CONTRAT`, `USAGE INTERNE
-   ORACLE` ou `INCLUS DANS L EDITION`.
+   ORACLE`, `SEUIL 3 PDB, MANUEL 19C` ou `INCLUS DANS L EDITION`.
 3. **Installé et configuré.** Les options potentiellement soumises à licence séparée,
    selon l'édition, présentes dans `V$OPTION`, le
    paramètre `control_management_pack_access` et sa lecture (aucun pack, Diagnostics,
@@ -121,14 +121,12 @@ Partitioning (system)                                  61 22/08/2025 18/10/2026 
 
 OPTION (V$OPTION)              ETAT
 ------------------------------ ----------------------------------
-Advanced Analytics             INSTALLEE, PAS FORCEMENT UTILISEE
 Advanced Compression           INSTALLEE, PAS FORCEMENT UTILISEE
 OLAP                           INSTALLEE, PAS FORCEMENT UTILISEE
 Partitioning                   INSTALLEE, PAS FORCEMENT UTILISEE
 Real Application Testing       INSTALLEE, PAS FORCEMENT UTILISEE
-Spatial                        INSTALLEE, PAS FORCEMENT UTILISEE
 
-6 lignes selectionnees.
+4 lignes selectionnees.
 
 PARAMETRE                       VALEUR             LECTURE
 ------------------------------- ------------------ ------------------------------------
@@ -158,10 +156,10 @@ première ligne est différente : `Partitioning` sans suffixe, **32 détections 
 la ligne qu'il faut rapprocher du contrat. Le script ne dit pas si elle est couverte,
 il n'en a pas les moyens : il dit qu'elle existe, et depuis quand.
 
-**Lecture de la section 3.** Six options installées, ce qui est l'état normal d'une
+**Lecture de la section 3.** Quatre options installées, ce qui est l'état normal d'une
 édition Enterprise, et aucune de ces lignes ne signifie un usage. La liste est celle des
-options potentiellement soumises à licence séparée : ce caractère dépend de l'édition, et
-certaines sont incluses dans les éditions courantes. En revanche
+options à licence séparée selon le manuel 19c (révision d'avril 2020) : ce caractère
+dépend de l'édition, et il évolue d'une révision à l'autre. En revanche
 `control_management_pack_access` vaut `DIAGNOSTIC+TUNING` : c'est **la valeur par défaut
 sur Enterprise Edition**, et elle ouvre l'accès aux deux packs. Ouvert n'est pas utilisé,
 mais une base où ils sont ouverts peut les utiliser sans que personne ne s'en aperçoive.
@@ -252,6 +250,28 @@ Aucune vue sous licence. Exécuté avec un compte de lecture non privilégié.
 - **L'édition.** Sur Express et Personal Edition, la colonne `LECTURE` vaut `INCLUS DANS
   L EDITION` pour toutes les lignes. Le script ne distingue pas Standard Edition de ses
   variantes : il affiche le bandeau de `V$VERSION` et vous laisse le lire.
+- **La liste des fonctionnalités à licence séparée a une date.** Elle suit le manuel
+  *Oracle Database Licensing Information User Manual 19c*, révision E94254-18 d'avril
+  2020, tables 1-12 et 1-14. Ce manuel y déclare **inclus dans toutes les éditions** :
+  Oracle Spatial and Graph, Oracle Machine Learning (anciennement Advanced Analytics,
+  dont Data Mining), Privilege Analysis, Transparent Sensitive Data Protection et le
+  Flashback Data Archive de base ; Oracle Text n'y figure pas comme option. Le script ne
+  les signale donc pas, même s'ils apparaissent en usage.
+- **Multitenant se juge par un seuil, pas par une présence.** Le même manuel, table 1-2
+  (page 1-4) : « *For all offerings, if you are not licensed for Oracle Multitenant, then
+  you may have up to 3 user-created PDBs in a given container database at any time.* »
+  Un usage `Oracle Multitenant` est donc attendu sur toute base en architecture conteneur,
+  et le script le lit `SEUIL 3 PDB, MANUEL 19C` au lieu de `A RAPPROCHER DU CONTRAT`. Pour
+  compter, depuis `CDB$ROOT` seulement (depuis une PDB, `V$PDBS` ne montre qu'elle-même) :
+
+  ```sql
+  SELECT COUNT(*) FROM v$pdbs WHERE con_id > 2;
+  ```
+
+  `CON_ID` 1 est la racine, 2 la PDB d'amorçage : au-delà, ce sont les PDB utilisateur.
+- **Les paliers libérés après cette révision** (par exemple le niveau de base d'In-Memory)
+  n'y sont pas : **le manuel de votre version fait foi**, et une ligne `A RAPPROCHER DU
+  CONTRAT` se rapproche d'abord de ce manuel.
 - **RAC : hors périmètre.** `V$LICENSE` est locale à l'instance (pic « depuis le démarrage
   de l'instance ») ; ce script ne consolide pas plusieurs nœuds.
 - **Oracle 11g.** La ligne `CONTENEUR COURANT` rend `ORA-02003` : il n'y a pas de
@@ -270,8 +290,12 @@ système a vérifié », `LAST_SAMPLE_DATE`, `DETECTED_USAGES`, `FIRST_USAGE_DAT
 8.105 `V$OPTION` (« installée »), chapitre 8.37 `V$LICENSE` (pic « depuis le démarrage de
 l'instance »), chapitre 1.53 `CONTROL_MANAGEMENT_PACK_ACCESS` (valeurs, défaut
 `DIAGNOSTIC+TUNING` sur Enterprise Edition, `NONE` ailleurs) ; *Oracle Database 19c
-Licensing Information User Manual*, « Oracle Management Packs and Their Permitted
-Features » (tout accès à la fonctionnalité Diagnostics Pack exige la licence). Les
+Licensing Information User Manual*, révision E94254-18 (avril 2020) : tables 1-12 et
+1-14 (options par édition, Spatial and Graph et Machine Learning « no longer requires an
+extra cost license », « Basic Flashback Data Archive is in all offerings »), table 1-2
+page 1-4 (jusqu'à 3 PDB utilisateur par CDB sans licence Multitenant), et « Oracle
+Management Packs and Their Permitted Features » (tout accès à la fonctionnalité
+Diagnostics Pack exige la licence). Les
 droits d'une édition relèvent de la licence de cette édition et de votre contrat.
 
 ---
