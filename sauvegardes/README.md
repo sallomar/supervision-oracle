@@ -30,13 +30,19 @@ recovery* ». Autrement dit, le seul point restaurable est la dernière sauvegar
 base fermée, et tout ce qui a été écrit depuis est perdu. Le script l'écrit en toutes
 lettres à la première ligne.
 
-**Sur une base multitenant, la vue des travaux RMAN ne porte que le conteneur racine.**
-C'est mesuré, pas supposé : sur la base de test, même compte, même base, `1` ligne depuis
-`CDB$ROOT`, `0` depuis la PDB, deux minutes après une sauvegarde complète réussie. Un
-script qui compte les travaux depuis une PDB conclut « aucune sauvegarde » sur une base
-sauvegardée. **C'est l'inverse exact du script des licences**, qui se lance dans chaque PDB :
-ici, lancez-le depuis la racine. Et quand ce n'est pas possible, le script le détecte et
-le dit, au lieu de conclure à tort.
+**Une sauvegarde pilotée depuis la racine n'apparaît pas dans la vue des travaux lue
+depuis une PDB.** C'est mesuré, pas supposé : sur la base de test, même compte, même base,
+`1` ligne depuis `CDB$ROOT`, `0` depuis la PDB, deux minutes après une sauvegarde complète
+réussie. Un script qui compte les travaux depuis une PDB conclut « aucune sauvegarde » sur
+une base sauvegardée.
+
+Ce qui n'est **pas** établi, et la documentation invite à la prudence : `CON_ID` est
+documentée comme pouvant valoir `0`, `1` ou l'identifiant du conteneur concerné. Une
+sauvegarde lancée en se connectant directement à la PDB n'a pas été testée ici, et pourrait
+donc se comporter autrement. L'énoncé ci-dessus est celui de la mesure, pas une loi
+générale. **C'est l'inverse du script des licences**, qui se lance dans chaque PDB : ici,
+lancez-le depuis la racine. Et quand ce n'est pas possible, le script le détecte et le dit,
+au lieu de conclure à tort.
 
 **Le fichier de contrôle garde une ligne par journal, même effacé, et par pièce, même
 supprimée.** La politique de suppression des journaux archivés les efface une fois
@@ -61,9 +67,13 @@ journaux laisse ce point en arrière, même si elle s'est terminée avec succès
 2. **La dernière sauvegarde réussie, par type**, lue dans `V$RMAN_BACKUP_JOB_DETAILS` :
    date, durée, volume, âge en heures, et une lecture face à trois repères par
    environnement : **48 h** en production, **192 h** en test, **336 h** en développement.
-   Puis le **repli** : les pièces de sauvegarde du fichier de contrôle. Si la vue des
-   travaux est vide mais que les pièces répondent, la lecture est `PILOTE DEPUIS LA
-   RACINE, DETAIL NON VISIBLE D ICI`, jamais « aucune sauvegarde ».
+   **Réussie veut dire `STATUS = 'COMPLETED'` au sens strict.** La colonne prend aussi les
+   valeurs `COMPLETED WITH WARNINGS` et `COMPLETED WITH ERRORS` : un filtre sur
+   `LIKE 'COMPLETED%'` afficherait un échec partiel comme une réussite. Ces travaux sont
+   donc **listés à part**, nommés, avec leur date et leur nombre, et un échec partiel y est
+   qualifié d'échec. Puis le **repli** : les pièces de sauvegarde du fichier de contrôle. Si
+   la vue des travaux ne rend aucune ligne mais que les pièces répondent, la lecture est
+   `PILOTE DEPUIS LA RACINE, DETAIL NON VISIBLE D ICI`, jamais « aucune sauvegarde ».
 3. **La chaîne et l'écart.** Journaux archivés encore sur disque, combien ne sont pas
    sauvegardés, le plus ancien d'entre eux, le dernier point restaurable et l'écart en
    heures jusqu'à maintenant. En `ARCHIVELOG`, le point restaurable est **le dernier
@@ -77,8 +87,9 @@ journaux laisse ce point en arrière, même si elle s'est terminée avec succès
 
 ### Aperçu de la sortie
 
-Depuis `CDB$ROOT`, sur une base dont la sauvegarde complète de la nuit a réussi mais dont
-les journaux ne sont plus sauvegardés depuis deux jours :
+Depuis `CDB$ROOT`, sur une base dont la sauvegarde complète a réussi, dont la sauvegarde
+des journaux de la nuit s'est terminée **avec des erreurs**, et dont les journaux ne sont
+plus sauvegardés depuis deux jours :
 
 ```
 SQL> @01-jusqu-ou-pouvez-vous-restaurer.sql
@@ -88,8 +99,8 @@ SQL> @01-jusqu-ou-pouvez-vous-restaurer.sql
 =========================================================================
 
 === SECTION 1 : mode de journalisation et conteneur =====================
- Le mode decide de tout. Et depuis une PDB, la vue des travaux RMAN est
- vide par construction : lance ce script depuis CDB$ROOT.
+ Le mode decide de tout. Une sauvegarde pilotee depuis la racine n
+ apparait pas dans la vue des travaux lue d une PDB : lance-le d en haut.
 
 BASE       JOURNALISATION OUVERTURE   LECTURE
 ---------- -------------- ----------- --------------------------------------------------------------
@@ -106,8 +117,9 @@ CDB$ROOT
 1 ligne selectionnee.
 
 === SECTION 2 : la derniere sauvegarde reussie, par type ================
- Travaux RMAN termines, lus dans V$RMAN_BACKUP_JOB_DETAILS. Les seuils
- d age sont des reperes par environnement, pas un verdict.
+ REUSSIE = STATUS COMPLETED strict. COMPLETED WITH ERRORS et COMPLETED
+ WITH WARNINGS sont des echecs partiels : ils sont listes juste apres.
+ Les seuils d age sont des reperes par environnement, pas un verdict.
 
                                      DUREE    VOLUME        AGE
 TYPE             DERNIERE REUSSIE    (SEC)      (MO)   (HEURES) LECTURE (REPERES 48 / 192 / 336 H)
@@ -116,6 +128,15 @@ DB FULL          23/10/2026 02:14     1874     48210       31.6 DANS LE REPERE P
 ARCHIVELOG       21/10/2026 02:31      212      3980       79.3 AU-DELA DU REPERE PROD (48 H)
 
 2 lignes selectionnees.
+
+ Et ce qui n a PAS entierement reussi. Aucune ligne ici est un resultat,
+ pas une absence : aucun travail en erreur, en avertissement ni en cours.
+
+STATUT NON REUSSI        TYPE             DERNIER           NOMBRE LECTURE
+------------------------ ---------------- ---------------- ------- ----------------------------------------
+COMPLETED WITH ERRORS    ARCHIVELOG       24/10/2026 02:31       1 ECHEC PARTIEL : A TRAITER COMME UN ECHEC
+
+1 ligne selectionnee.
 
      PIECES
 DISPONIBLES DERNIERE PIECE   LECTURE
@@ -161,16 +182,22 @@ ZONE DE RECUPERATION                              (GO)       (GO)        (GO) EF
 =========================================================================
 ```
 
-**Lecture.** La sauvegarde complète de la nuit a 31,6 heures et elle est dans le repère de
-production. Tout a l'air en ordre, et c'est la section 3 qui dit le contraire : **37
-journaux archivés sur 61 ne sont pas sauvegardés**, le plus ancien date du 21/10 à 02:40,
-soit juste après la dernière sauvegarde de journaux réussie. Le dernier point restaurable
-depuis les sauvegardes est donc **le 21/10 à 02:31, il y a 79 heures**, et non la
-sauvegarde complète de la nuit : prise base ouverte, celle-ci a besoin des journaux
-archivés pendant et après elle pour redevenir cohérente, et ces journaux ne sont que sur
-disque. Si ce disque est perdu, tout ce qui a été écrit depuis le 21/10 l'est aussi. Le
-compte rendu de la nuit disait « succès ». Il avait raison, et il ne répondait pas à la
-bonne question.
+**Lecture.** La sauvegarde complète la plus récente a 31,6 heures et elle est dans le
+repère de production. Tout a l'air en ordre. Deux lignes disent le contraire.
+
+La première est juste en dessous : la sauvegarde des journaux de cette nuit s'est terminée
+**avec des erreurs**. Elle n'est donc pas comptée comme réussie, et la dernière vraie
+sauvegarde de journaux remonte au 21/10. Un contrôle qui accepte `LIKE 'COMPLETED%'`
+l'aurait prise pour un succès et affiché un âge de deux heures au lieu de soixante-dix-neuf.
+
+La seconde est la section 3 : **37 journaux archivés sur 61 ne sont pas sauvegardés**, le
+plus ancien du 21/10 à 02:40, soit juste après la dernière sauvegarde de journaux réussie.
+Le dernier point restaurable depuis les sauvegardes est donc **le 21/10 à 02:31, il y a
+79 heures**, et non la sauvegarde complète du 23 : prise base ouverte, celle-ci a besoin des
+journaux archivés pendant et après elle pour redevenir cohérente, et ces journaux ne sont
+que sur disque. Si ce disque est perdu, tout ce qui a été écrit depuis le 21/10 l'est aussi.
+Le compte rendu de la nuit disait que la sauvegarde s'était terminée. Il avait raison, et il
+ne répondait pas à la bonne question.
 
 La zone de récupération est à 63,5 % **effectifs** : 97,4 Go occupés dont 21,15 Go
 qu'Oracle peut libérer seul. Un outil qui lit le brut annoncerait 81 %.
@@ -179,8 +206,14 @@ qu'Oracle peut libérer seul. Un outil qui lit le brut annoncerait 81 %.
 
 ```
 === SECTION 2 : la derniere sauvegarde reussie, par type ================
- Travaux RMAN termines, lus dans V$RMAN_BACKUP_JOB_DETAILS. Les seuils
- d age sont des reperes par environnement, pas un verdict.
+ REUSSIE = STATUS COMPLETED strict. COMPLETED WITH ERRORS et COMPLETED
+ WITH WARNINGS sont des echecs partiels : ils sont listes juste apres.
+ Les seuils d age sont des reperes par environnement, pas un verdict.
+
+aucune ligne selectionnee
+
+ Et ce qui n a PAS entierement reussi. Aucune ligne ici est un resultat,
+ pas une absence : aucun travail en erreur, en avertissement ni en cours.
 
 aucune ligne selectionnee
 
@@ -225,6 +258,9 @@ script se vérifient sur la même base, sans rien provoquer**, dès lors qu'elle
    le fichier de contrôle, dont un en statut `D` de chaque côté, que le script ne compte pas).
 3. Compare la section 3 : même nombre de journaux depuis les deux conteneurs, et un écart
    identique. C'est la preuve que la chaîne, elle, se lit de partout.
+4. Regarde la liste des travaux **non entièrement réussis**. Sur une base saine elle rend
+   `aucune ligne selectionnee`, et c'est un résultat : aucun travail en erreur, en
+   avertissement ni en cours. Sur la base de test, c'est ce qu'elle a rendu des deux côtés.
 
 **Pour voir la section 3 basculer en `JOURNAUX NON SAUVEGARDES`**, il suffit de faire
 tourner la base sans sauvegarder ses journaux : quelques `ALTER SYSTEM SWITCH LOGFILE` en
@@ -250,15 +286,23 @@ Aucune vue sous licence. Exécuté avec un compte de lecture non privilégié, d
 
 ### Portée et limites
 
-- **CDB / PDB : lance-le depuis `CDB$ROOT`.** `V$RMAN_BACKUP_JOB_DETAILS` ne porte que
-  `CON_ID = 1`. Depuis une PDB elle est vide par construction, et le script le signale au
-  lieu de conclure. `V$BACKUP_PIECE` est partiellement visible depuis une PDB (pièces
-  partagées et pièces propres), `V$ARCHIVED_LOG`, `V$RMAN_CONFIGURATION` et
-  `V$RECOVERY_FILE_DEST` répondent de partout.
+- **CDB / PDB : lance-le depuis `CDB$ROOT`.** Dans `V$RMAN_BACKUP_JOB_DETAILS`, `CON_ID`
+  peut valoir `0`, `1` ou l'identifiant du conteneur concerné. Sur la base de test, une
+  sauvegarde pilotée depuis la racine porte `CON_ID = 1`, et la vue ne rend donc aucune
+  ligne depuis une PDB ; le script le signale au lieu de conclure. Une sauvegarde lancée en
+  se connectant directement à la PDB n'a pas été testée. `V$BACKUP_PIECE` est partiellement
+  visible depuis une PDB (pièces partagées et pièces propres), `V$ARCHIVED_LOG`,
+  `V$RMAN_CONFIGURATION` et `V$RECOVERY_FILE_DEST` répondent de partout.
 - **Le détail de la zone de récupération par type est filtré par conteneur.**
   `V$RECOVERY_AREA_USAGE` donne, pour la même zone, des pourcentages différents selon le
   conteneur d'où on la lit (sur la base de test : 14,8 % depuis la racine, 3,3 % depuis la
   PDB). Le script lit `V$RECOVERY_FILE_DEST`, dont les totaux sont les mêmes partout.
+- **Les journaux sont comptés par journal, pas par destination.** `V$ARCHIVED_LOG` porte
+  une ligne par destination d'archivage : une base qui multiplexe ses archives sur deux
+  destinations, ce qui est une bonne pratique, verrait ses journaux comptés deux fois. Le
+  script compte les couples fil et séquence distincts. Conséquence à connaître : un journal
+  dont une copie seulement a été sauvegardée est compté comme non sauvegardé, lecture
+  volontairement prudente.
 - **Les repères d'âge ont une origine, et une limite.** 48 h, 192 h et 336 h sont les
   repères par environnement d'une supervision continue, et ils y servent de **repli** : le
   vrai seuil y suit la cadence détectée de chaque base. Une production sauvegardée chaque
@@ -276,13 +320,21 @@ Aucune vue sous licence. Exécuté avec un compte de lecture non privilégié, d
   sauvegarde RMAN complète, depuis `CDB$ROOT` en `SYSDBA` et depuis la PDB avec un compte
   de lecture non privilégié. Pas encore exécuté sur 11.2 ni sur 19c, ni sur une base en
   `NOARCHIVELOG` : l'aperçu ci-dessus est fictif.
+- **Les travaux en échec partiel n'ont pas été observés sur une vraie base.** La base de
+  test n'a aucun travail en erreur, et la liste y rend `aucune ligne selectionnee`. La mise
+  en forme de ses colonnes a été vérifiée séparément, aux mêmes formats, avec des valeurs
+  fabriquées. La ligne `COMPLETED WITH ERRORS` de l'aperçu est donc fictive, comme le reste.
 
 ### Sources
 
 Comportement d'Oracle : *Oracle Database 19c Reference*, chapitre 8.172
-`V$RMAN_BACKUP_JOB_DETAILS`, chapitre 7.101 `V$BACKUP_PIECE` (« *information about
-backup pieces from the control file* »), chapitre 7.35 `V$ARCHIVED_LOG` (enregistrement
-inséré après archivage ; `NAME` à `NULL` si le journal a été effacé) ; *Oracle Database 19c
+`V$RMAN_BACKUP_JOB_DETAILS` (p. 8-166 : `STATUS` prend l'une des six valeurs `RUNNING WITH
+WARNINGS`, `RUNNING WITH ERRORS`, `COMPLETED`, `COMPLETED WITH WARNINGS`, `COMPLETED WITH
+ERRORS`, `FAILED` ; `CON_ID` vaut `0`, `1` ou l'identifiant du conteneur concerné),
+chapitre 7.101 `V$BACKUP_PIECE` (« *information about backup pieces from the control
+file* »), chapitre 7.35 `V$ARCHIVED_LOG` (enregistrement inséré après archivage ; `NAME` à
+`NULL` si le journal a été effacé ; `DEST_ID`, « *original destination from which the
+archive log was generated* ») ; *Oracle Database 19c
 Backup and Recovery User's Guide*, § 2.4.2 (sauvegarde ouverte dite *inconsistent*,
 « *as effective… if you have the archived redo logs needed to recover the backup* »),
 § 2.4.3 et § 29.2 (en `NOARCHIVELOG`, seule une sauvegarde cohérente est valide, et « *you

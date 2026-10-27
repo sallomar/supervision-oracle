@@ -23,17 +23,23 @@
 --                 ARCHIVELOG avec une sauvegarde RMAN, depuis CDB$ROOT et
 --                 depuis une PDB, en SYSDBA puis avec un compte de lecture non
 --                 privilegie. Pas encore execute sur 11.2 ni sur 19c.
--- CDB           : lance-le depuis CDB$ROOT. V$RMAN_BACKUP_JOB_DETAILS ne porte
---                 que le conteneur racine : depuis une PDB elle est VIDE, meme
---                 sur une base sauvegardee il y a deux minutes. Le script le
---                 detecte et le dit (section 2) au lieu de conclure « aucune
---                 sauvegarde ». C est l inverse du script des licences, qui se
---                 lance DANS chaque PDB.
+-- CDB           : lance-le depuis CDB$ROOT. Dans V$RMAN_BACKUP_JOB_DETAILS,
+--                 CON_ID vaut 0, 1 ou l identifiant du conteneur concerne
+--                 (reference 19c, 8.172). Mesure sur 21c XE : une sauvegarde
+--                 pilotee depuis la racine porte CON_ID 1, et la vue ne rend
+--                 donc AUCUNE ligne depuis une PDB, meme deux minutes apres.
+--                 Une sauvegarde lancee en se connectant directement a la PDB
+--                 n a pas ete testee. Le script detecte le cas et le dit
+--                 (section 2) au lieu de conclure « aucune sauvegarde ». C est
+--                 l inverse du script des licences, qui se lance DANS chaque PDB.
 -- PERIMETRE     : bases SINGLE-INSTANCE. Sauvegardes RMAN sur disque ou bande ;
 --                 les copies faites hors RMAN ne sont pas visibles ici.
 -- A SAVOIR      : les vues V$ lisent le FICHIER DE CONTROLE. Un journal archive
 --                 deja efface (DELETED = YES) y garde une ligne : le script
---                 filtre sur ceux qui restent sur disque. Les seuils d age
+--                 filtre sur ceux qui restent sur disque, et les compte par
+--                 journal et non par destination d archivage. REUSSIE veut dire
+--                 STATUS = COMPLETED strict : COMPLETED WITH ERRORS et
+--                 COMPLETED WITH WARNINGS sont listes a part. Les seuils d age
 --                 affiches (48 h, 192 h, 336 h) sont ceux d une supervision par
 --                 environnement, production / test / developpement ; ce sont
 --                 des reperes de repli, votre cadence de sauvegarde fait foi.
@@ -56,8 +62,8 @@ PROMPT  JUSQU OU POUVEZ-VOUS RESTAURER  ==  lecture seule, pas une garantie
 PROMPT =========================================================================
 PROMPT
 PROMPT === SECTION 1 : mode de journalisation et conteneur =====================
-PROMPT  Le mode decide de tout. Et depuis une PDB, la vue des travaux RMAN est
-PROMPT  vide par construction : lance ce script depuis CDB$ROOT.
+PROMPT  Le mode decide de tout. Une sauvegarde pilotee depuis la racine n
+PROMPT  apparait pas dans la vue des travaux lue d une PDB : lance-le d en haut.
 PROMPT
 
 COLUMN nom_base      FORMAT A10   HEADING "BASE"
@@ -81,8 +87,9 @@ SELECT SYS_CONTEXT('USERENV', 'CON_NAME') AS conteneur FROM dual;
 
 PROMPT
 PROMPT === SECTION 2 : la derniere sauvegarde reussie, par type ================
-PROMPT  Travaux RMAN termines, lus dans V$RMAN_BACKUP_JOB_DETAILS. Les seuils
-PROMPT  d age sont des reperes par environnement, pas un verdict.
+PROMPT  REUSSIE = STATUS COMPLETED strict. COMPLETED WITH ERRORS et COMPLETED
+PROMPT  WITH WARNINGS sont des echecs partiels : ils sont listes juste apres.
+PROMPT  Les seuils d age sont des reperes par environnement, pas un verdict.
 PROMPT
 
 COLUMN type_sauvegarde FORMAT A16        HEADING "TYPE"
@@ -92,7 +99,9 @@ COLUMN volume_mo       FORMAT 99999999   HEADING "VOLUME|(MO)"
 COLUMN age_h           FORMAT 9999990.0  HEADING "AGE|(HEURES)"
 COLUMN lecture_age     FORMAT A34        HEADING "LECTURE (REPERES 48 / 192 / 336 H)"
 
--- Un travail = une execution RMAN. Le dernier termine par type suffit ici.
+-- Un travail = une execution RMAN. STATUS vaut aussi COMPLETED WITH ERRORS et
+-- COMPLETED WITH WARNINGS (reference 19c, 8.172) : les compter comme reussis
+-- afficherait un echec partiel en vert. Filtre strict ici, liste a part ensuite.
 SELECT
     type_sauvegarde,
     derniere_fin,
@@ -113,17 +122,45 @@ FROM (
         ROUND(MAX(j.output_bytes) KEEP (DENSE_RANK LAST ORDER BY j.end_time) / 1024 / 1024) AS volume_mo,
         ROUND((SYSDATE - MAX(j.end_time)) * 24, 1)       AS age_h
     FROM v$rman_backup_job_details j
-    WHERE j.status LIKE 'COMPLETED%'
+    WHERE j.status = 'COMPLETED'
     GROUP BY j.input_type
 )
-ORDER BY derniere_fin DESC;
+ORDER BY age_h;
+
+COLUMN statut_partiel  FORMAT A24      HEADING "STATUT NON REUSSI"
+COLUMN type_partiel    FORMAT A16      HEADING "TYPE"
+COLUMN dernier_partiel FORMAT A16      HEADING "DERNIER"
+COLUMN nb_partiel      FORMAT 999999   HEADING "NOMBRE"
+COLUMN lecture_partiel FORMAT A40      HEADING "LECTURE"
+
+PROMPT
+PROMPT  Et ce qui n a PAS entierement reussi. Aucune ligne ici est un resultat,
+PROMPT  pas une absence : aucun travail en erreur, en avertissement ni en cours.
+PROMPT
+
+SELECT
+    status                                            AS statut_partiel,
+    input_type                                        AS type_partiel,
+    TO_CHAR(MAX(end_time), 'DD/MM/YYYY HH24:MI')      AS dernier_partiel,
+    COUNT(*)                                          AS nb_partiel,
+    CASE
+        WHEN status = 'COMPLETED WITH ERRORS'   THEN 'ECHEC PARTIEL : A TRAITER COMME UN ECHEC'
+        WHEN status = 'COMPLETED WITH WARNINGS' THEN 'AVERTISSEMENTS : A LIRE DANS RMAN'
+        WHEN status = 'FAILED'                  THEN 'ECHEC : AUCUNE SAUVEGARDE UTILISABLE ICI'
+        WHEN status LIKE 'RUNNING%'             THEN 'EN COURS AU MOMENT DE LA LECTURE'
+        ELSE                                         'A LIRE DANS LE JOURNAL RMAN'
+    END                                               AS lecture_partiel
+FROM   v$rman_backup_job_details
+WHERE  status <> 'COMPLETED'
+GROUP  BY status, input_type
+ORDER  BY MAX(end_time) DESC;
 
 COLUMN nb_pieces       FORMAT 9999999  HEADING "PIECES|DISPONIBLES"
 COLUMN derniere_piece  FORMAT A16      HEADING "DERNIERE PIECE"
 COLUMN lecture_pieces  FORMAT A54      HEADING "LECTURE"
 
--- Repli : si la vue des travaux est vide, les pieces du fichier de controle
--- disent s il existe quand meme une sauvegarde, pilotee depuis la racine.
+-- Repli : si la vue des travaux ne rend AUCUNE ligne, les pieces du fichier de
+-- controle disent s il existe quand meme une sauvegarde, pilotee d ailleurs.
 SELECT
     nb_pieces,
     derniere_piece,
@@ -142,7 +179,6 @@ FROM (
 (
     SELECT COUNT(*) AS nb_travaux
     FROM v$rman_backup_job_details
-    WHERE status LIKE 'COMPLETED%'
 ) travaux;
 
 PROMPT
@@ -162,6 +198,8 @@ COLUMN lecture_chaine     FORMAT A46      HEADING "LECTURE"
 -- Point restaurable : en ARCHIVELOG, le dernier journal archive SAUVEGARDE (une
 -- sauvegarde ouverte exige les journaux pris pendant et apres elle) ; en
 -- NOARCHIVELOG, la derniere piece de sauvegarde, et rien apres.
+-- V$ARCHIVED_LOG porte une ligne par DESTINATION d archivage : on compte les
+-- journaux distincts, sinon une base qui multiplexe ses archives compte double.
 SELECT
     journaux_disque,
     non_sauvegardes,
@@ -187,9 +225,9 @@ FROM (
     FROM (
         SELECT
             (SELECT log_mode FROM v$database)                                    AS mode_journal,
-            (SELECT COUNT(*) FROM v$archived_log
+            (SELECT COUNT(DISTINCT thread# || '-' || sequence#) FROM v$archived_log
              WHERE deleted = 'NO')                                               AS journaux_disque,
-            (SELECT COUNT(*) FROM v$archived_log
+            (SELECT COUNT(DISTINCT thread# || '-' || sequence#) FROM v$archived_log
              WHERE deleted = 'NO' AND backup_count = 0)                          AS non_sauvegardes,
             (SELECT TO_CHAR(MIN(completion_time), 'DD/MM/YYYY HH24:MI')
              FROM v$archived_log
